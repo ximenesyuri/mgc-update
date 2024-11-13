@@ -1,0 +1,90 @@
+#! /bin/bash
+
+update() {
+    echo "log: updating mgc to version $1..."
+    archs=("darwin_amd64" "freebsd_amd64" "linux_amd64" "linux_arm64")
+    if [[ -z $(which jq) ]]; then
+        echo "log: installing jq..."
+        curl -L -o /usr/bin/jq https://github.com/stedolan/jq/releases/latest/download/jq-linux64 > /dev/null 2>&1
+        if [[ ! "$?" == "0" ]]; then
+            echo "error: could not install jq."
+            return 1
+        fi
+        echo "done: jq has been installed."
+    fi
+    if [[ -z "$MGC_ARCHITECTURE" ]]; then
+        echo "warn: MGC_ARCHITECTURE not set."
+        echo "info: Assuming MGC_ARCHITECTURE=linux_amd64."
+        MGC_LOCATION=/usr/bin
+        MGC_ARCHITECTURE="linux_amd64"
+    elif [[ "${archs[@]}" =~ "$MGC_ARCHITECTURE" ]]; then 
+        echo "log: downloading mgccli_$1..."
+        download_url="https://github.com/MagaluCloud/mgccli/releases/download/v$latest_version/mgccli_${latest_version}_${MGC_ARCHITECTURE}.tar.gz"
+        curl -L -o /tmp/mgc.tar.gz $download_url > /dev/null 2>&1
+        if [[ ! "$?" == "0" ]]; then
+            echo "error: could not get mgccli_$1."
+            return 1
+        fi
+        if [[ -z "$MGC_LOCATION" ]]; then
+            echo "warn: MGC_LOCATION not set."
+            echo "info: Assuming MGC_LOCATION=/usr/bin."
+            MGC_LOCATION=/usr/bin
+        fi
+        echo "log: installing mgccli_$1..."
+        tar -xf /tmp/mgc.tar.gz -C /tmp
+        sudo mv /tmp/mgc $MGC_LOCATION
+        if [[ ! "$?" == "0" ]]; then
+            echo "error: could not extract the /tmp/mgc.tar.gz to $MGC_LOCATION/mgc."
+            return 1
+        fi
+    else
+        echo "error: $MGC_LOCATION is not a valid architecture."
+    fi
+}
+
+need_to_update() {
+    IFS='.' read -r -a v1 <<< "$1"
+    IFS='.' read -r -a v2 <<< "$2"
+    for i in {0..2}; do
+        if [[ -z "${v2[i]}" ]]; then v2[i]=0; fi
+        if [[ -z "${v1[i]}" ]]; then v1[i]=0; fi
+        if ((${v2[i]} > ${v1[i]})); then
+            echo "info: mgc need to be updted from version v$1to v$2"
+            return 0
+        else
+            return 1
+        fi
+    done
+}
+
+core() {
+    current_version="$(mgc --version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/v//g')"
+    latest_version="$(curl -s https://api.github.com/repos/MagaluCloud/mgccli/releases/latest | jq -r '.tag_name' | sed 's/v//g')"
+    if need_to_update $current_version $latest_version; then
+        update $latest_version
+        if [[ "$?" == "1" ]]; then
+            echo "error: mgc could not be updated."
+            return 1
+        fi
+    else
+        echo "info: mgc is in its latest version v$latest_version."
+    fi
+}
+
+mgc() {
+    if [[ "${MGC_AUTO_UPDATE^^}" == "TRUE" ]]; then 
+        core
+        if [[ "$?" == "1" ]]; then
+            return 1
+        fi
+        command mgc "$@"
+    fi
+    if [[ "$1" == "--update" ]]; then
+        core
+        if [[ "$?" == "1" ]]; then
+            return 1
+        fi
+    else
+        command mgc "$@"
+    fi              
+}
