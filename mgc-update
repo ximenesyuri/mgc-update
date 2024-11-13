@@ -88,3 +88,7 @@ mgc() {
         command mgc "$@"
     fi              
 }
+
+unset -f core
+unset -f need_to_update
+unset -f update
